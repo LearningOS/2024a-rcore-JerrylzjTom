@@ -23,6 +23,8 @@ use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
+use crate::config::MAX_SYSCALL_NUM;
+use crate::timer::{get_time};
 
 /// The task manager, where all the tasks are managed.
 ///
@@ -79,6 +81,8 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let next_task = &mut inner.tasks[0];
         next_task.task_status = TaskStatus::Running;
+        next_task.time = get_time();
+        next_task.flag = true;
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
@@ -143,6 +147,10 @@ impl TaskManager {
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
+            if !inner.tasks[next].flag {
+                inner.tasks[next].time = get_time();
+                inner.tasks[next].flag = true;
+            } // go back to user mode
             drop(inner);
             // before this, we should drop local variables that must be dropped manually
             unsafe {
@@ -152,6 +160,22 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+
+    /// increase the times of syscall
+    fn inc_syscall_times(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].syscall_time[syscall_id] += 1;
+    }
+    ///
+    fn get_current_task_info(&self) -> (TaskStatus, [u32; MAX_SYSCALL_NUM], usize) {
+        let inner = self.inner.exclusive_access();
+        let current_task = inner.current_task;
+        let status = inner.tasks[current_task].task_status;
+        let sys = inner.tasks[current_task].syscall_time;
+        let time = inner.tasks[current_task].time;
+        (status, sys, time)
     }
 }
 
@@ -201,4 +225,13 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// increase the current task system call times
+pub fn inc_syscall_times(syscall_id: usize) {
+    TASK_MANAGER.inc_syscall_times(syscall_id);
+}
+/// get current task info
+pub fn get_current_task_info() ->(TaskStatus, [u32; MAX_SYSCALL_NUM], usize) {
+    TASK_MANAGER.get_current_task_info()
 }

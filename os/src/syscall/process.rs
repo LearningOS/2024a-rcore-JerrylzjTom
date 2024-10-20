@@ -1,4 +1,8 @@
 //! Process management syscalls
+
+use crate::mm::translated_ptr_across_pages;
+use crate::task::{current_user_token, get_current_task_info};
+use crate::timer::{get_time, get_time_ms, get_time_us};
 use crate::{
     config::MAX_SYSCALL_NUM,
     task::{
@@ -43,15 +47,27 @@ pub fn sys_yield() -> isize {
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
     trace!("kernel: sys_get_time");
-    -1
+    let ts = translated_ptr_across_pages(current_user_token(), _ts);
+    unsafe {
+        (*ts).sec = get_time_ms();
+        (*ts).usec = get_time_us();
+    }
+    0
 }
 
 /// YOUR JOB: Finish sys_task_info to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
 pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
-    trace!("kernel: sys_task_info NOT IMPLEMENTED YET!");
-    -1
+    let ti = translated_ptr_across_pages(current_user_token(), _ti);
+    let current_time = get_time();
+    let (status, syscall_time, time) = get_current_task_info();
+    unsafe {
+        (*ti).syscall_times = syscall_time;
+        (*ti).status = status;
+        (*ti).time = current_time - time;
+    }
+    0
 }
 
 // YOUR JOB: Implement mmap.

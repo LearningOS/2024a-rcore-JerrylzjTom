@@ -1,9 +1,12 @@
 //! Implementation of [`PageTableEntry`] and [`PageTable`].
 
 use super::{frame_alloc, FrameTracker, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
+use crate::config::PAGE_SIZE;
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::*;
+use core::mem::size_of;
+use core::ptr;
 
 bitflags! {
     /// page table entry flags
@@ -170,4 +173,59 @@ pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&
         start = end_va.into();
     }
     v
+}
+/// translate ptr across pages
+pub fn translated_ptr_across_pages<T>(token: usize, ptr: *const T) -> *mut T {
+    let page_table = PageTable::from_token(token);
+
+    let va = VirtAddr::from(ptr as usize);
+    let mut vpn = va.floor();
+    let offset = va.page_offset();
+
+    let size_of_t = size_of::<T>();
+    let page_size = PAGE_SIZE; // Assume a constant page size, e.g., 4 KB
+
+    if offset + size_of_t <= page_size {
+        // Case 1: T fits within a single page
+        let ppn = page_table.translate(vpn).unwrap().ppn();
+
+        let pa = ppn.get_bytes_array(); // Physical page data
+        unsafe {
+            // Return a raw pointer to the translated data
+            pa.as_ptr().add(offset) as *mut T
+        }
+    } else {
+        // Case 2: T spans two pages
+        let ppn1 = page_table.translate(vpn).unwrap().ppn();
+        let pa1 = ppn1.get_bytes_array();
+        vpn.step();
+        let vpn2 = vpn; // Get the next page number
+        let ppn2 = page_table.translate(vpn2).unwrap().ppn();
+        let pa2 = ppn2.get_bytes_array();
+
+        let bytes_in_first_page = page_size - offset;
+        let bytes_in_second_page = size_of_t - bytes_in_first_page;
+
+        // Dynamically allocate memory for the combined data
+        let mut combined_data = vec![0u8; size_of_t];
+
+        unsafe {
+            // Copy the first part of `T` from the first page
+            ptr::copy_nonoverlapping(
+                pa1.as_ptr().add(offset),
+                combined_data.as_mut_ptr(),
+                bytes_in_first_page,
+            );
+
+            // Copy the second part of `T` from the second page
+            ptr::copy_nonoverlapping(
+                pa2.as_ptr(),
+                combined_data.as_mut_ptr().add(bytes_in_first_page),
+                bytes_in_second_page,
+            );
+
+            // Return the combined data as a pointer to `T`
+            combined_data.as_ptr() as *mut T
+        }
+    }
 }
