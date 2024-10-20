@@ -24,7 +24,7 @@ pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
 use crate::config::MAX_SYSCALL_NUM;
-use crate::timer::{get_time};
+use crate::timer::{get_time_ms};
 
 /// The task manager, where all the tasks are managed.
 ///
@@ -81,7 +81,7 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let next_task = &mut inner.tasks[0];
         next_task.task_status = TaskStatus::Running;
-        next_task.time = get_time();
+        next_task.time = get_time_ms();
         next_task.flag = true;
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
         drop(inner);
@@ -148,7 +148,7 @@ impl TaskManager {
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
             if !inner.tasks[next].flag {
-                inner.tasks[next].time = get_time();
+                inner.tasks[next].time = get_time_ms();
                 inner.tasks[next].flag = true;
             } // go back to user mode
             drop(inner);

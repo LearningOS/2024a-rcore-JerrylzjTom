@@ -1,8 +1,8 @@
 //! Process management syscalls
 
-use crate::mm::translated_ptr_across_pages;
+use crate::mm::{mmap, munmap, translated_ptr_across_pages};
 use crate::task::{current_user_token, get_current_task_info};
-use crate::timer::{get_time, get_time_ms, get_time_us};
+use crate::timer::{get_time_ms, get_time_us};
 use crate::{
     config::MAX_SYSCALL_NUM,
     task::{
@@ -48,9 +48,12 @@ pub fn sys_yield() -> isize {
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
     trace!("kernel: sys_get_time");
     let ts = translated_ptr_across_pages(current_user_token(), _ts);
+    let us = get_time_us();
     unsafe {
-        (*ts).sec = get_time_ms();
-        (*ts).usec = get_time_us();
+        *ts = TimeVal {
+            sec: us / 1_000_000,
+            usec: us % 1_000_000,
+        };
     }
     0
 }
@@ -60,7 +63,7 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
 pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
     let ti = translated_ptr_across_pages(current_user_token(), _ti);
-    let current_time = get_time();
+    let current_time = get_time_ms();
     let (status, syscall_time, time) = get_current_task_info();
     unsafe {
         (*ti).syscall_times = syscall_time;
@@ -72,14 +75,12 @@ pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
 
 // YOUR JOB: Implement mmap.
 pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
-    -1
+    mmap(_start, _len, _port)
 }
 
 // YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
-    -1
+    munmap(_start, _len)
 }
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {

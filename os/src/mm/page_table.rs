@@ -7,6 +7,7 @@ use alloc::vec::Vec;
 use bitflags::*;
 use core::mem::size_of;
 use core::ptr;
+use crate::task::current_user_token;
 
 bitflags! {
     /// page table entry flags
@@ -228,4 +229,70 @@ pub fn translated_ptr_across_pages<T>(token: usize, ptr: *const T) -> *mut T {
             combined_data.as_ptr() as *mut T
         }
     }
+}
+/// map virtual address from start with len size
+pub fn mmap(start: usize, len: usize, prot: usize) -> isize {
+    let mut page_table = PageTable::from_token(current_user_token());
+    let mut start = start;
+    let end = start + len;
+    // Iterate through VPNs and map them to physical pages
+    while start < end {
+        // Allocate a new physical page (PPN)
+        let start_va = VirtAddr::from(start);
+        let mut vpn = start_va.floor();
+
+        if page_table.translate(vpn).is_some() {
+            return -1;
+        }
+        // Set permissions based on `prot` bit flags
+        let mut flags = PTEFlags::empty();
+        if prot & 0b001 != 0 { // Bit 0: Read
+            flags |= PTEFlags::R;
+        }
+        if prot & 0b010 != 0 { // Bit 1: Write
+            flags |= PTEFlags::W;
+        }
+        if prot & 0b100 != 0 { // Bit 2: Execute
+            flags |= PTEFlags::X;
+        }
+        // Map the VPN to the newly allocated PPN with the specified permissions
+        let ppn = frame_alloc().expect("Failed to allocate physical page").ppn;
+        page_table.map(vpn, ppn, flags);
+        vpn.step();
+        let mut end_va: VirtAddr = vpn.into();
+        end_va = end_va.min(VirtAddr::from(end));
+        start = end_va.into();
+    }
+    0
+}
+
+/// munmap
+pub fn munmap(start: usize, len: usize) -> isize {
+    let mut page_table = PageTable::from_token(current_user_token());
+    let mut start = start;
+    let end = start + len;
+    // Iterate through VPNs and map them to physical pages
+    while start < end {
+        // Allocate a new physical page (PPN)
+        let start_va = VirtAddr::from(start);
+        let mut vpn = start_va.ceil();
+
+        if page_table.translate(vpn).is_none() {
+            return -1;
+        }
+        match page_table.translate(vpn) {
+            None => return -1,
+            Some(pte) => {
+                if !pte.is_valid() {
+                    return -1;
+                }
+                page_table.unmap(vpn);
+                vpn.step();
+                let mut end_va: VirtAddr = vpn.into();
+                end_va = end_va.min(VirtAddr::from(end));
+                start = end_va.into();
+            }
+        }
+    }
+    0
 }
