@@ -21,9 +21,9 @@ use alloc::vec::Vec;
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
-
 pub use context::TaskContext;
-use crate::config::MAX_SYSCALL_NUM;
+use crate::config::{MAX_SYSCALL_NUM};
+use crate::mm::{MapPermission, VirtAddr};
 use crate::timer::{get_time_ms};
 
 /// The task manager, where all the tasks are managed.
@@ -177,6 +177,45 @@ impl TaskManager {
         let time = inner.tasks[current_task].time;
         (status, sys, time)
     }
+
+    fn mmap(&self, start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) -> isize {
+       let mut inner = self.inner.exclusive_access();
+        let current_task = inner.current_task;
+       let memory_set = &mut inner.tasks[current_task].memory_set;
+       let mut start_vpn = start_va.floor();
+       let end_vpn = end_va.ceil();
+       while start_vpn < end_vpn {
+            if let Some(pte) = memory_set.translate(start_vpn) {
+                if pte.is_valid() {
+                    println!("{:?} has mapped", start_vpn);
+                    return -1;
+                }
+            }
+            start_vpn.0 += 1;
+       }
+       memory_set.insert_framed_area(start_va, end_va, permission | MapPermission::U);
+       0
+    }
+
+    fn munmap(&self,  start_va: VirtAddr, end_va: VirtAddr) -> isize {
+        let mut inner = self.inner.exclusive_access();
+        let current_task = inner.current_task;
+        let memory_set = &mut inner.tasks[current_task].memory_set;
+        let mut start_vpn = start_va.floor();
+        let end_vpn = end_va.ceil();
+        while start_vpn < end_vpn {
+            if let Some(pte) = memory_set.translate(start_vpn) {
+                if !pte.is_valid() {
+                    println!("{:?} has mapped", start_vpn);
+                    return -1;
+                }
+            }
+            start_vpn.0 += 1;
+        }
+        memory_set.remove_framed_area(start_va, end_va);
+        0
+    }
+
 }
 
 /// Run the first task in task list.
@@ -234,4 +273,12 @@ pub fn inc_syscall_times(syscall_id: usize) {
 /// get current task info
 pub fn get_current_task_info() ->(TaskStatus, [u32; MAX_SYSCALL_NUM], usize) {
     TASK_MANAGER.get_current_task_info()
+}
+/// mmap for sys_mmap
+pub fn mmap(start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) -> isize {
+    TASK_MANAGER.mmap(start_va, end_va, permission)
+}
+/// munmap for sys_munmap
+pub fn munmap(start_va: VirtAddr, end_va: VirtAddr) -> isize {
+    TASK_MANAGER.munmap(start_va, end_va)
 }

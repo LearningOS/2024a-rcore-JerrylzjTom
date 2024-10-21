@@ -70,6 +70,19 @@ impl MemorySet {
         }
         self.areas.push(map_area);
     }
+    /// remove framed area and ummap
+    pub fn remove_framed_area(&mut self, start_va: VirtAddr, end_va: VirtAddr) {
+        self.areas.retain_mut(|area| {
+            if area.vpn_range.get_start() == start_va.floor()
+                && area.vpn_range.get_end() == end_va.ceil()
+            {
+                area.unmap(&mut self.page_table);
+                false
+            } else {
+                true
+            }
+        });
+    }
     /// Mention that trampoline is not collected by areas.
     fn map_trampoline(&mut self) {
         self.page_table.map(
@@ -376,6 +389,24 @@ bitflags! {
         const X = 1 << 3;
         ///Accessible in U mode
         const U = 1 << 4;
+    }
+}
+
+impl From<usize> for MapPermission {
+    fn from(bits: usize) -> Self {
+        let mut perm = MapPermission::empty();
+
+        if bits & 0b001 != 0 {
+            perm |= MapPermission::R;  // Readable
+        }
+        if bits & 0b010 != 0 {
+            perm |= MapPermission::W;  // Writable
+        }
+        if bits & 0b100 != 0 {
+            perm |= MapPermission::X;  // Executable
+        }
+
+        perm
     }
 }
 

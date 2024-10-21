@@ -1,7 +1,7 @@
 //! Process management syscalls
 
-use crate::mm::{mmap, munmap, translated_ptr_across_pages};
-use crate::task::{current_user_token, get_current_task_info};
+use crate::mm::{translated_ptr_across_pages};
+use crate::task::{current_user_token, get_current_task_info, mmap, munmap};
 use crate::timer::{get_time_ms, get_time_us};
 use crate::{
     config::MAX_SYSCALL_NUM,
@@ -74,13 +74,27 @@ pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
 }
 
 // YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    mmap(_start, _len, _port)
+pub fn sys_mmap(_start: usize, _len: usize, _prot: usize) -> isize {
+    // 检查 prot 是否仅包含低 3 位（读、写、执行权限），其他位必须为 0
+    if _prot & !0x7 != 0 {
+        return -1; // 其他位不为0，返回错误
+    }
+    // 检查是否有至少一个有效的权限位（读、写或执行）
+    if _prot & 0x7 == 0 {
+        return -1; // 没有有效权限，返回错误
+    }
+    if _start % 4096 != 0 {
+        return -1;
+    }
+    mmap(_start.into(), (_start + _len).into(), _prot.into())
 }
 
 // YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    munmap(_start, _len)
+    if _start % 4096 != 0 || _len % 4096 != 0 {
+        return -1;
+    }
+    munmap(_start.into(), (_start + _len).into())
 }
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {
