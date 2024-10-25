@@ -7,13 +7,13 @@
 use super::__switch;
 use super::{fetch_task, TaskStatus};
 use super::{TaskContext, TaskControlBlock};
+use crate::config::MAX_SYSCALL_NUM;
+use crate::mm::{MapPermission, VirtAddr};
 use crate::sync::UPSafeCell;
+use crate::timer::get_time_ms;
 use crate::trap::TrapContext;
 use alloc::sync::Arc;
 use lazy_static::*;
-use crate::config::MAX_SYSCALL_NUM;
-use crate::mm::{MapPermission, VirtAddr};
-use crate::timer::{ get_time_ms};
 
 /// Processor management structure
 pub struct Processor {
@@ -66,7 +66,7 @@ impl Processor {
         0
     }
 
-    fn munmap(&self,  start_va: VirtAddr, end_va: VirtAddr) -> isize {
+    fn munmap(&self, start_va: VirtAddr, end_va: VirtAddr) -> isize {
         let current_task = self.current().unwrap();
         let memory_set = &mut current_task.inner_exclusive_access().memory_set;
         let mut start_vpn = start_va.floor();
@@ -177,7 +177,9 @@ pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
 
 /// mmap for sys_mmap
 pub fn mmap(start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) -> isize {
-    PROCESSOR.exclusive_access().mmap(start_va, end_va, permission)
+    PROCESSOR
+        .exclusive_access()
+        .mmap(start_va, end_va, permission)
 }
 /// munmap for sys_munmap
 pub fn munmap(start_va: VirtAddr, end_va: VirtAddr) -> isize {
@@ -189,6 +191,6 @@ pub fn inc_syscall_times(syscall_id: usize) {
     PROCESSOR.exclusive_access().inc_syscall_times(syscall_id);
 }
 /// get current task info
-pub fn get_current_task_info() ->(TaskStatus, [u32; MAX_SYSCALL_NUM], usize) {
+pub fn get_current_task_info() -> (TaskStatus, [u32; MAX_SYSCALL_NUM], usize) {
     PROCESSOR.exclusive_access().get_current_task_info()
 }

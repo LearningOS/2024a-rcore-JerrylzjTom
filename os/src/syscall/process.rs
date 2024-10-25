@@ -1,6 +1,9 @@
 //! Process management syscalls
 use alloc::sync::Arc;
 
+use crate::mm::translated_ptr_across_pages;
+use crate::task::{get_current_task_info, mmap, munmap, BIGSTRIDE};
+use crate::timer::{get_time_ms, get_time_us};
 use crate::{
     config::MAX_SYSCALL_NUM,
     loader::get_app_data_by_name,
@@ -10,9 +13,6 @@ use crate::{
         suspend_current_and_run_next, TaskStatus,
     },
 };
-use crate::mm::translated_ptr_across_pages;
-use crate::task::{get_current_task_info, mmap, munmap, BIGSTRIDE};
-use crate::timer::{get_time_ms, get_time_us};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -82,7 +82,11 @@ pub fn sys_exec(path: *const u8) -> isize {
 /// If there is not a child process whose pid is same as given, return -1.
 /// Else if there is a child process but it is still running, return -2.
 pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
-    trace!("kernel::pid[{}] sys_waitpid [{}]", current_task().unwrap().pid.0, pid);
+    trace!(
+        "kernel::pid[{}] sys_waitpid [{}]",
+        current_task().unwrap().pid.0,
+        pid
+    );
     let task = current_task().unwrap();
     // find a child process
 
@@ -195,7 +199,7 @@ pub fn sys_spawn(_path: *const u8) -> isize {
         trap_cx.x[10] = 0;
         add_task(new_task);
         new_pid as isize
-    }else {
+    } else {
         -1
     }
 }
@@ -204,12 +208,16 @@ pub fn sys_spawn(_path: *const u8) -> isize {
 pub fn sys_set_priority(_prio: isize) -> isize {
     if _prio < 2 {
         -1
-    }else {
+    } else {
         let current_task = current_task().unwrap();
         let mut inner = current_task.inner_exclusive_access();
         inner.priority = _prio as usize;
-        inner.pass = BIGSTRIDE / _prio as usize;
-        debug!("sys_set_priority set priority: {} pass: {}", _prio,BIGSTRIDE / _prio as usize);
+        inner.pass = BIGSTRIDE / _prio;
+        debug!(
+            "sys_set_priority set priority: {} pass: {}",
+            _prio,
+            BIGSTRIDE / _prio
+        );
         _prio
     }
 }

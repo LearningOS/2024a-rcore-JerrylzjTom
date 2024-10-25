@@ -1,12 +1,12 @@
 //! Implementation of [`PageTableEntry`] and [`PageTable`].
 use super::{frame_alloc, FrameTracker, PhysAddr, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
+use crate::config::PAGE_SIZE;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
+use bitflags::*;
 use core::mem::size_of;
 use core::ptr;
-use bitflags::*;
-use crate::config::PAGE_SIZE;
 
 bitflags! {
     /// page table entry flags

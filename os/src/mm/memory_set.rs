@@ -442,13 +442,13 @@ impl From<usize> for MapPermission {
         let mut perm = MapPermission::empty();
 
         if bits & 0b001 != 0 {
-            perm |= MapPermission::R;  // Readable
+            perm |= MapPermission::R; // Readable
         }
         if bits & 0b010 != 0 {
-            perm |= MapPermission::W;  // Writable
+            perm |= MapPermission::W; // Writable
         }
         if bits & 0b100 != 0 {
-            perm |= MapPermission::X;  // Executable
+            perm |= MapPermission::X; // Executable
         }
 
         perm
