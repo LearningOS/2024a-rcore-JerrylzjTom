@@ -10,7 +10,9 @@ use crate::{
         suspend_current_and_run_next, TaskStatus,
     },
 };
-use crate::task::BIGSTRIDE;
+use crate::mm::translated_ptr_across_pages;
+use crate::task::{get_current_task_info, mmap, munmap, BIGSTRIDE};
+use crate::timer::{get_time_ms, get_time_us};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -39,7 +41,7 @@ pub fn sys_exit(exit_code: i32) -> ! {
 
 /// current task gives up resources for other tasks
 pub fn sys_yield() -> isize {
-    trace!("kernel:pid[{}] sys_yield", current_task().unwrap().pid.0);
+    // debug!("kernel:pid[{}] sys_yield", current_task().unwrap().pid.0);
     suspend_current_and_run_next();
     0
 }
@@ -119,40 +121,55 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    trace!("kernel: sys_get_time");
+    let ts = translated_ptr_across_pages(current_user_token(), _ts);
+    let us = get_time_us();
+    unsafe {
+        *ts = TimeVal {
+            sec: us / 1_000_000,
+            usec: us % 1_000_000,
+        };
+    }
+    // debug!("process sys_get_time {}", us);
+    0
 }
 
 /// YOUR JOB: Finish sys_task_info to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
 pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_task_info NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    let ti = translated_ptr_across_pages(current_user_token(), _ti);
+    let current_time = get_time_ms();
+    let (status, syscall_time, time) = get_current_task_info();
+    unsafe {
+        (*ti).syscall_times = syscall_time;
+        (*ti).status = status;
+        (*ti).time = current_time - time;
+    }
+    0
 }
 
-/// YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_mmap(_start: usize, _len: usize, _prot: usize) -> isize {
+    // 检查 prot 是否仅包含低 3 位（读、写、执行权限），其他位必须为 0
+    if _prot & !0x7 != 0 {
+        return -1; // 其他位不为0，返回错误
+    }
+    // 检查是否有至少一个有效的权限位（读、写或执行）
+    if _prot & 0x7 == 0 {
+        return -1; // 没有有效权限，返回错误
+    }
+    if _start % 4096 != 0 {
+        return -1;
+    }
+    mmap(_start.into(), (_start + _len).into(), _prot.into())
 }
 
-/// YOUR JOB: Implement munmap.
+// YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    if _start % 4096 != 0 || _len % 4096 != 0 {
+        return -1;
+    }
+    munmap(_start.into(), (_start + _len).into())
 }
 
 /// change data segment size
@@ -193,6 +210,6 @@ pub fn sys_set_priority(_prio: isize) -> isize {
         inner.priority = _prio as usize;
         inner.pass = BIGSTRIDE / _prio as usize;
         debug!("sys_set_priority set priority: {} pass: {}", _prio,BIGSTRIDE / _prio as usize);
-        0
+        _prio
     }
 }

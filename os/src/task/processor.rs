@@ -11,6 +11,9 @@ use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::sync::Arc;
 use lazy_static::*;
+use crate::config::MAX_SYSCALL_NUM;
+use crate::mm::{MapPermission, VirtAddr};
+use crate::timer::{ get_time_ms};
 
 /// Processor management structure
 pub struct Processor {
@@ -44,6 +47,58 @@ impl Processor {
     pub fn current(&self) -> Option<Arc<TaskControlBlock>> {
         self.current.as_ref().map(Arc::clone)
     }
+
+    fn mmap(&self, start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) -> isize {
+        let current_task = self.current().unwrap();
+        let memory_set = &mut current_task.inner_exclusive_access().memory_set;
+        let mut start_vpn = start_va.floor();
+        let end_vpn = end_va.ceil();
+        while start_vpn < end_vpn {
+            if let Some(pte) = memory_set.translate(start_vpn) {
+                if pte.is_valid() {
+                    debug!("{:?} has mapped", start_vpn);
+                    return -1;
+                }
+            }
+            start_vpn.0 += 1;
+        }
+        memory_set.insert_framed_area(start_va, end_va, permission | MapPermission::U);
+        0
+    }
+
+    fn munmap(&self,  start_va: VirtAddr, end_va: VirtAddr) -> isize {
+        let current_task = self.current().unwrap();
+        let memory_set = &mut current_task.inner_exclusive_access().memory_set;
+        let mut start_vpn = start_va.floor();
+        let end_vpn = end_va.ceil();
+        while start_vpn < end_vpn {
+            if let Some(pte) = memory_set.translate(start_vpn) {
+                if !pte.is_valid() {
+                    debug!("{:?} has mapped", start_vpn);
+                    return -1;
+                }
+            }
+            start_vpn.0 += 1;
+        }
+        memory_set.remove_framed_area(start_va, end_va);
+        0
+    }
+
+    /// increase the times of syscall
+    fn inc_syscall_times(&self, syscall_id: usize) {
+        let current_task = self.current().unwrap();
+        let mut inner = current_task.inner_exclusive_access();
+        inner.syscall_time[syscall_id] += 1;
+    }
+    ///
+    fn get_current_task_info(&self) -> (TaskStatus, [u32; MAX_SYSCALL_NUM], usize) {
+        let current_task = self.current().unwrap();
+        let inner = current_task.inner_exclusive_access();
+        let status = inner.task_status;
+        let sys = inner.syscall_time;
+        let time = inner.time;
+        (status, sys, time)
+    }
 }
 
 lazy_static! {
@@ -56,12 +111,19 @@ pub fn run_tasks() {
     loop {
         let mut processor = PROCESSOR.exclusive_access();
         if let Some(task) = fetch_task() {
+            {
+                let mut inner = task.inner_exclusive_access();
+                if !inner.flag {
+                    inner.time = get_time_ms();
+                    inner.flag = true;
+                }
+            }
             // task add pass
             let idle_task_cx_ptr = processor.get_idle_task_cx_ptr();
             // access coming task TCB exclusively
             let mut task_inner = task.inner_exclusive_access();
-            let pass = task_inner.pass;
-            task_inner.stride += pass;
+            // let pass = task_inner.pass;
+            // task_inner.stride += pass;
             let next_task_cx_ptr = &task_inner.task_cx as *const TaskContext;
             task_inner.task_status = TaskStatus::Running;
             // release coming task_inner manually
@@ -111,4 +173,22 @@ pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
     unsafe {
         __switch(switched_task_cx_ptr, idle_task_cx_ptr);
     }
+}
+
+/// mmap for sys_mmap
+pub fn mmap(start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) -> isize {
+    PROCESSOR.exclusive_access().mmap(start_va, end_va, permission)
+}
+/// munmap for sys_munmap
+pub fn munmap(start_va: VirtAddr, end_va: VirtAddr) -> isize {
+    PROCESSOR.exclusive_access().munmap(start_va, end_va)
+}
+
+/// increase the current task system call times
+pub fn inc_syscall_times(syscall_id: usize) {
+    PROCESSOR.exclusive_access().inc_syscall_times(syscall_id);
+}
+/// get current task info
+pub fn get_current_task_info() ->(TaskStatus, [u32; MAX_SYSCALL_NUM], usize) {
+    PROCESSOR.exclusive_access().get_current_task_info()
 }

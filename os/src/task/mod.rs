@@ -33,7 +33,7 @@ pub use id::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 pub use manager::add_task;
 pub use processor::{
     current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
-    Processor,
+    Processor, inc_syscall_times, get_current_task_info, mmap, munmap,
 };
 /// Suspend the current 'Running' task and run the next task in task list.
 pub fn suspend_current_and_run_next() {
@@ -58,7 +58,7 @@ pub fn suspend_current_and_run_next() {
 pub const IDLE_PID: usize = 0;
 
 /// BigStride
-pub const BIGSTRIDE: usize = 1000000;
+pub const BIGSTRIDE: usize = isize::MAX as usize;
 
 /// Exit the current 'Running' task and run the next task in task list.
 pub fn exit_current_and_run_next(exit_code: i32) {
@@ -118,3 +118,5 @@ lazy_static! {
 pub fn add_initproc() {
     add_task(INITPROC.clone());
 }
+
+

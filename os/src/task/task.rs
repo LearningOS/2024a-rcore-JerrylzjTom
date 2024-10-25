@@ -1,13 +1,14 @@
 //! Types related to task management & Functions for completely changing TCB
 use super::{TaskContext, BIGSTRIDE};
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
-use crate::config::TRAP_CONTEXT_BASE;
+use crate::config::{MAX_SYSCALL_NUM, TRAP_CONTEXT_BASE};
 use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
 use core::cell::RefMut;
+use core::fmt;
 
 /// Task control block structure
 ///
@@ -49,6 +50,13 @@ pub struct TaskControlBlockInner {
 
     /// Maintain the execution status of the current process
     pub task_status: TaskStatus,
+
+    /// The number of syscall time
+    pub syscall_time: [u32; MAX_SYSCALL_NUM],
+    /// The time that task first run
+    pub time: usize,
+    /// if scheduled first
+    pub flag: bool,
 
     /// Application address space
     pub memory_set: MemorySet,
@@ -121,6 +129,9 @@ impl TaskControlBlock {
                     base_size: user_sp,
                     task_cx: TaskContext::goto_trap_return(kernel_stack_top),
                     task_status: TaskStatus::Ready,
+                    time: 0,
+                    syscall_time: [0; MAX_SYSCALL_NUM],
+                    flag: false,
                     memory_set,
                     parent: None,
                     children: Vec::new(),
@@ -198,6 +209,9 @@ impl TaskControlBlock {
                     task_cx: TaskContext::goto_trap_return(kernel_stack_top),
                     task_status: TaskStatus::Ready,
                     memory_set,
+                    time: 0,
+                    syscall_time: [0; MAX_SYSCALL_NUM],
+                    flag: false,
                     parent: Some(Arc::downgrade(self)),
                     children: Vec::new(),
                     exit_code: 0,
@@ -272,6 +286,9 @@ impl TaskControlBlock {
                     task_cx: TaskContext::goto_trap_return(kernel_stack_top),
                     task_status: TaskStatus::Ready,
                     memory_set,
+                    time: 0,
+                    syscall_time: [0; MAX_SYSCALL_NUM],
+                    flag: false,
                     parent: Some(Arc::downgrade(self)),
                     children: Vec::new(),
                     exit_code: 0,
@@ -292,10 +309,18 @@ impl TaskControlBlock {
             entry_point,
             user_sp,
             KERNEL_SPACE.exclusive_access().token(),
-            self.kernel_stack.get_top(),
+            kernel_stack_top,
             trap_handler as usize,
         );
         task_control_block
+    }
+}
+
+impl fmt::Debug for TaskControlBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Access the stride through inner_exclusive_access
+        let inner = self.inner_exclusive_access();
+        write!(f, "TaskControlBlock {{ pid: {:?}, stride: {} priority: {} }}", self.pid.0, inner.stride, inner.priority)
     }
 }
 
