@@ -10,6 +10,7 @@ use crate::{
         suspend_current_and_run_next, TaskStatus,
     },
 };
+use crate::task::BIGSTRIDE;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -167,18 +168,31 @@ pub fn sys_sbrk(size: i32) -> isize {
 /// YOUR JOB: Implement spawn.
 /// HINT: fork + exec =/= spawn
 pub fn sys_spawn(_path: *const u8) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    let current_task = current_task().unwrap();
+    let token = current_user_token();
+    let path = translated_str(token, _path);
+    if let Some(data) = get_app_data_by_name(path.as_str()) {
+        let new_task = current_task.spawn(data);
+        let new_pid = new_task.pid.0;
+        let trap_cx = new_task.inner_exclusive_access().get_trap_cx();
+        trap_cx.x[10] = 0;
+        add_task(new_task);
+        new_pid as isize
+    }else {
+        -1
+    }
 }
 
 // YOUR JOB: Set task priority.
 pub fn sys_set_priority(_prio: isize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_set_priority NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    if _prio < 2 {
+        -1
+    }else {
+        let current_task = current_task().unwrap();
+        let mut inner = current_task.inner_exclusive_access();
+        inner.priority = _prio as usize;
+        inner.pass = BIGSTRIDE / _prio as usize;
+        debug!("sys_set_priority set priority: {} pass: {}", _prio,BIGSTRIDE / _prio as usize);
+        0
+    }
 }
